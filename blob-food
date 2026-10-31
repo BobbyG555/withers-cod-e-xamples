@@ -1,118 +1,236 @@
 
-local players = game:GetService("Players")
-local tweenservice = game:GetService("TweenService")
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
 
-local arena = workspace:WaitForChild("BlobArena")
+local Arena = workspace:WaitForChild("BlobArena")
 
-local max_food = 150
-local food_respawn = 0.3
-local food_count = 0
+local Max_food = 150
+local Food_respawn = 0.3
+local Food_count = 0
 
-local food_folder = Instance.new("Folder")
-food_folder.Name = "BlobFood"
-food_folder.Parent = workspace
+local Golden_chance = 2
+local Moving_chance = 12
+local Burst_chance = 5
 
-local food_types = {
+local Food_folder = Instance.new("Folder")
+Food_folder.Name = "BlobFood"
+Food_folder.Parent = workspace
+
+local Food_types = {
     {
         worth = 1,
         size = 0.7,
-        color = Color3.fromRGB(255, 220, 70)
+        color = Color3.fromRGB(255, 220, 70),
+        chance = 55
     },
     {
         worth = 3,
         size = 1,
-        color = Color3.fromRGB(70, 255, 120)
+        color = Color3.fromRGB(70, 255, 120),
+        chance = 30
     },
     {
         worth = 5,
         size = 1.3,
-        color = Color3.fromRGB(255, 80, 180)
+        color = Color3.fromRGB(255, 80, 180),
+        chance = 15
     }
 }
 
--- gets a random position inside arena
-local function random_pos()
-    local arena_size = arena.Size
-    local arena_pos = arena.Position
+local function Random_pos()
+    local Arena_size = Arena.Size
+    local Arena_pos = Arena.Position
 
-    local x = math.random(
-        -arena_size.X / 2 + 5,
-        arena_size.X / 2 - 5
+    local X = math.random(
+        math.ceil(-Arena_size.X / 2 + 5),
+        math.floor(Arena_size.X / 2 - 5)
     )
 
-    local z = math.random(
-        -arena_size.Z / 2 + 5,
-        arena_size.Z / 2 - 5
+    local Z = math.random(
+        math.ceil(-Arena_size.Z / 2 + 5),
+        math.floor(Arena_size.Z / 2 - 5)
     )
 
     return Vector3.new(
-        arena_pos.X + x,
-        arena_pos.Y + arena_size.Y / 2 + 1.5,
-        arena_pos.Z + z
+        Arena_pos.X + X,
+        Arena_pos.Y + Arena_size.Y / 2 + 1.5,
+        Arena_pos.Z + Z
     )
 end
 
--- makes a food pellet
-local function spawn_food()
-    if food_count >= max_food then return end
+local function Pick_food()
+    local Roll = math.random(1, 100)
+    local Total = 0
 
-    local food_info = food_types[math.random(1, #food_types)]
+    for _, Info in pairs(Food_types) do
+        Total += Info.chance
 
-    local food = Instance.new("Part")
-    food.Name = "Food"
-    food.Shape = Enum.PartType.Ball
-    food.Size = Vector3.new(0.1, 0.1, 0.1)
-    food.Position = random_pos()
-    food.Anchored = true
-    food.CanCollide = false
-    food.CanTouch = true
-    food.Material = Enum.Material.Neon
-    food.Color = food_info.color
-    food.Parent = food_folder
+        if Roll <= Total then
+            return Info
+        end
+    end
 
-    food_count += 1
+    return Food_types[1]
+end
 
-    local collected = false
+local function Spawn_food()
+    if Food_count >= Max_food then return end
 
-    -- food spawning animation
-    local appear = tweenservice:Create(
-        food,
+    local Food_info = Pick_food()
+    local Is_golden = math.random(1, 100) <= Golden_chance
+
+    local Worth = Food_info.worth
+    local Size = Food_info.size
+    local Color = Food_info.color
+
+    if Is_golden then
+        Worth = 25
+        Size = 1.8
+        Color = Color3.fromRGB(255, 190, 0)
+    end
+
+    local Food = Instance.new("Part")
+    Food.Name = Is_golden and "GoldenFood" or "Food"
+    Food.Shape = Enum.PartType.Ball
+    Food.Size = Vector3.new(0.1, 0.1, 0.1)
+    Food.Position = Random_pos()
+    Food.Anchored = true
+    Food.CanCollide = false
+    Food.CanTouch = true
+    Food.Material = Enum.Material.Neon
+    Food.Color = Color
+    Food.Parent = Food_folder
+
+    Food_count += 1
+
+    local Collected = false
+    local Original_pos = Food.Position
+
+    local Appear = TweenService:Create(
+        Food,
         TweenInfo.new(0.25),
         {
-            Size = Vector3.new(
-                food_info.size,
-                food_info.size,
-                food_info.size
-            )
+            Size = Vector3.new(Size, Size, Size)
         }
     )
 
-    appear:Play()
+    Appear:Play()
 
-    -- when blob touches food
-    food.Touched:Connect(function(hit)
-        if collected then return end
+    if Is_golden then
+        local Light = Instance.new("PointLight")
+        Light.Color = Color
+        Light.Brightness = 2
+        Light.Range = 12
+        Light.Parent = Food
 
-        local char = hit:FindFirstAncestorOfClass("Model")
-        if not char then return end
+        local Particles = Instance.new("ParticleEmitter")
+        Particles.Rate = 8
+        Particles.Lifetime = NumberRange.new(0.4, 0.8)
+        Particles.Speed = NumberRange.new(1, 3)
+        Particles.SpreadAngle = Vector2.new(180, 180)
+        Particles.Color = ColorSequence.new(Color)
+        Particles.Parent = Food
 
-        local plr = players:GetPlayerFromCharacter(char)
-        if not plr then return end
+        task.spawn(function()
+            while Food.Parent and not Collected do
+                TweenService:Create(
+                    Light,
+                    TweenInfo.new(0.5),
+                    {Brightness = 4}
+                ):Play()
 
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hum or hum.Health <= 0 then return end
+                task.wait(0.5)
 
-        if not char:FindFirstChild("BlobBody") then return end
+                if not Food.Parent then break end
 
-        collected = true
-        food.CanTouch = false
+                TweenService:Create(
+                    Light,
+                    TweenInfo.new(0.5),
+                    {Brightness = 1}
+                ):Play()
 
-        local old_mass = plr:GetAttribute("Mass") or 10
-        plr:SetAttribute("Mass", old_mass + food_info.worth)
+                task.wait(0.5)
+            end
+        end)
+    end
 
-        -- food disappears
-        local disappear = tweenservice:Create(
-            food,
+    if math.random(1, 100) <= Moving_chance then
+        task.spawn(function()
+            while Food.Parent and not Collected do
+                local Offset = Vector3.new(
+                    math.random(-4, 4),
+                    0,
+                    math.random(-4, 4)
+                )
+
+                local Move = TweenService:Create(
+                    Food,
+                    TweenInfo.new(
+                        math.random(10, 20) / 10,
+                        Enum.EasingStyle.Sine
+                    ),
+                    {Position = Original_pos + Offset}
+                )
+
+                Move:Play()
+                Move.Completed:Wait()
+
+                task.wait(0.2)
+            end
+        end)
+    end
+
+    Food.Touched:Connect(function(Hit)
+        if Collected then return end
+
+        local Char = Hit:FindFirstAncestorOfClass("Model")
+        if not Char then return end
+
+        local Plr = Players:GetPlayerFromCharacter(Char)
+        if not Plr then return end
+
+        local Hum = Char:FindFirstChildOfClass("Humanoid")
+        if not Hum or Hum.Health <= 0 then return end
+
+        if not Char:FindFirstChild("BlobBody") then return end
+
+        Collected = true
+        Food.CanTouch = false
+
+        local Old_mass = Plr:GetAttribute("Mass") or 10
+        Plr:SetAttribute("Mass", Old_mass + Worth)
+
+        local Eaten = Plr:GetAttribute("FoodEaten") or 0
+        Plr:SetAttribute("FoodEaten", Eaten + 1)
+
+        if Is_golden then
+            local Flash = Instance.new("Part")
+            Flash.Shape = Enum.PartType.Ball
+            Flash.Size = Vector3.new(1, 1, 1)
+            Flash.Position = Food.Position
+            Flash.Anchored = true
+            Flash.CanCollide = false
+            Flash.CanTouch = false
+            Flash.Material = Enum.Material.Neon
+            Flash.Color = Color
+            Flash.Transparency = 0.3
+            Flash.Parent = workspace
+
+            TweenService:Create(
+                Flash,
+                TweenInfo.new(0.4),
+                {
+                    Size = Vector3.new(8, 8, 8),
+                    Transparency = 1
+                }
+            ):Play()
+
+            Debris:AddItem(Flash, 0.5)
+        end
+
+        local Disappear = TweenService:Create(
+            Food,
             TweenInfo.new(0.15),
             {
                 Size = Vector3.new(0.1, 0.1, 0.1),
@@ -120,19 +238,98 @@ local function spawn_food()
             }
         )
 
-        disappear:Play()
-        disappear.Completed:Wait()
+        Disappear:Play()
+        Disappear.Completed:Wait()
 
-        food:Destroy()
-        food_count -= 1
+        Food:Destroy()
     end)
 end
 
--- constantly spawns food
-while true do
-    task.wait(food_respawn)
+Players.PlayerAdded:Connect(function(Plr)
+    Plr:SetAttribute("Mass", 10)
+    Plr:SetAttribute("FoodEaten", 0)
 
-    if food_count < max_food then
-        spawn_food()
+    local Stats = Instance.new("Folder")
+    Stats.Name = "leaderstats"
+    Stats.Parent = Plr
+
+    local Mass = Instance.new("IntValue")
+    Mass.Name = "Mass"
+    Mass.Value = 10
+    Mass.Parent = Stats
+
+    Plr:GetAttributeChangedSignal("Mass"):Connect(function()
+        Mass.Value = math.floor(Plr:GetAttribute("Mass") or 10)
+    end)
+
+    Plr.CharacterAdded:Connect(function(Char)
+        local Hum = Char:WaitForChild("Humanoid")
+
+        Hum.Died:Connect(function()
+            local Current_mass = Plr:GetAttribute("Mass") or 10
+
+            if Current_mass > 10 then
+                local Lost = math.floor(Current_mass * 0.25)
+
+                Plr:SetAttribute(
+                    "Mass",
+                    math.max(10, Current_mass - Lost)
+                )
+            end
+        end)
+    end)
+end)
+
+for I = 1, 80 do
+    Spawn_food()
+    task.wait(0.01)
+end
+
+task.spawn(function()
+    while true do
+        task.wait(15)
+
+        if math.random(1, 100) <= Burst_chance then
+            local Amount = math.random(5, 15)
+
+            for I = 1, Amount do
+                if Food_count >= Max_food then break end
+
+                Spawn_food()
+                task.wait(0.05)
+            end
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(10)
+
+        for _, Food in pairs(Food_folder:GetChildren()) do
+            if Food:IsA("BasePart") then
+                local Pos = Food.Position
+                local Center = Arena.Position
+                local Half = Arena.Size / 2
+
+                if math.abs(Pos.X - Center.X) > Half.X
+                    or math.abs(Pos.Z - Center.Z) > Half.Z then
+
+                    Food:Destroy()
+                end
+            end
+        end
+    end
+end)
+
+Food_folder.ChildRemoved:Connect(function()
+    Food_count = math.max(0, Food_count - 1)
+end)
+
+while true do
+    task.wait(Food_respawn)
+
+    if Food_count < Max_food then
+        Spawn_food()
     end
 end
