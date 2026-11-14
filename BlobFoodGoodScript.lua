@@ -3,6 +3,8 @@
 -- Github: BobbyG555
 -- Roblox: Witherbonbon55
 
+-- This script is for blob food
+
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local CollectionService = game:GetService("CollectionService")
